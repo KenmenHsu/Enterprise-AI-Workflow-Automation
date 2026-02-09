@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>醫電課 - 資料中心</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: '微軟正黑體', sans-serif; background-color: #f3f4f6; }
+        .card { transition: all 0.2s; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        /* 自定義捲軸 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+    </style>
+</head>
+<body>
+    <div id="app" class="flex h-screen overflow-hidden">
+        
+        <aside class="w-64 bg-slate-800 text-white flex flex-col shadow-lg">
+            <div class="p-6 border-b border-slate-700">
+                <h1 class="text-xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-microchip text-blue-400"></i> 醫電研發部
+                </h1>
+                <p class="text-xs text-slate-400 mt-1">資料管理中心</p>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 space-y-2">
+                <div class="text-xs font-semibold text-slate-500 uppercase mb-2">專案列表</div>
+                
+                <button @click="currentProject = ''" 
+                    :class="['w-full text-left px-4 py-3 rounded-lg text-sm transition-colors', currentProject === '' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-700']">
+                    <i class="fa-solid fa-folder-open w-6"></i> 所有資料
+                </button>
+
+                <button v-for="proj in uniqueProjects" :key="proj" @click="currentProject = proj"
+                    :class="['w-full text-left px-4 py-2 rounded-lg text-sm transition-colors truncate', currentProject === proj ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-700']">
+                    <i class="fa-solid fa-folder w-6"></i> {{ proj }}
+                </button>
+            </div>
+
+            <div class="p-4 border-t border-slate-700 text-xs text-center text-slate-500">
+                <p>已連線至資料庫</p>
+                <p>共 {{ totalFiles }} 個檔案</p>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col bg-gray-50">
+            <header class="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
+                <h2 class="text-lg font-bold text-slate-800">
+                    {{ currentProject || '總覽 Dashboard' }}
+                </h2>
+                <div class="flex gap-3">
+                    <div class="relative">
+                        <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                        <input type="text" v-model="searchKeyword" placeholder="搜尋檔名..." 
+                            class="pl-10 pr-4 py-2 border rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64">
+                    </div>
+                    <button @click="analyzeSelected" 
+                            :disabled="selectedFiles.length === 0"
+                            class="bg-rose-600 text-white px-4 py-2 rounded-lg hover:bg-rose-700 transition flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-brain"></i>
+                        AI 深度解讀 ({{ selectedFiles.length }})
+                    </button>
+                    <button @click="fetchFiles" class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-full text-sm transition">
+                        <i class="fa-solid fa-sync-alt" :class="{'fa-spin': loading}"></i> 重新整理
+                    </button>
+                </div>
+            </header>
+
+            <div class="px-6 pt-4 pb-2 bg-white border-b flex gap-2 overflow-x-auto">
+                <button v-for="cat in categories" :key="cat" @click="currentCategory = cat"
+                    :class="['px-4 py-1.5 rounded-full text-sm border transition-colors whitespace-nowrap', 
+                    currentCategory === cat ? 'bg-blue-100 border-blue-200 text-blue-700 font-bold' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']">
+                    {{ cat }}
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-6">
+                <div v-if="loading" class="flex flex-col items-center justify-center h-64 text-slate-400">
+                    <i class="fa-solid fa-circle-notch fa-spin text-4xl mb-4 text-blue-500"></i>
+                    <p>正在從伺服器掃描檔案，請稍候...</p>
+                </div>
+
+                <div v-else class="bg-white rounded-xl shadow-sm border overflow-hidden">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-600 text-sm border-b">
+                                <th class="p-4 w-12">
+                                    <input type="checkbox" @change="toggleAll" class="rounded border-gray-300">
+                                </th>
+                                <th class="p-4 font-semibold">檔案名稱</th>
+                                <th class="p-4 font-semibold w-32">分類</th>
+                                <th class="p-4 font-semibold w-40">專案</th>
+                                <th class="p-4 font-semibold w-24">建立者</th>
+                                <th class="p-4 font-semibold w-40">更新時間</th>
+                                <th class="p-4 font-semibold w-24 text-right">大小 (KB)</th>
+                                <th class="p-4 font-semibold w-24 text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm text-slate-700 divide-y divide-slate-100">
+                            <tr v-for="file in filteredFiles" :key="file.path" class="hover:bg-blue-50 transition-colors group">
+                                <td class="p-4 text-center">
+                                    <input type="checkbox" :value="file.path" v-model="selectedFiles" class="rounded border-gray-300 text-indigo-600">
+                                </td>
+                                <td class="p-4 font-medium flex items-center gap-3">
+                                    <i :class="getFileIcon(file.filename)" class="text-lg w-6 text-center text-slate-400 group-hover:text-blue-500"></i>
+                                    <div class="truncate max-w-md" :title="file.filename">{{ file.filename }}</div>
+                                </td>
+                                <td class="p-4">
+                                    <span :class="getBadgeColor(file.category)" class="px-2 py-1 rounded text-xs font-semibold">
+                                        {{ file.category.split(' ')[0] }}
+                                    </span>
+                                </td>
+                                <td class="p-4 text-slate-500">{{ file.project }}</td>
+                                <td class="p-4 text-slate-600 font-medium text-xs">
+                                    <span v-if="file.owner" class="bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                                        <i class="fa-solid fa-user text-slate-400 mr-1"></i> {{ file.owner }}
+                                    </span>
+                                </td>
+                                <td class="p-4 text-slate-400 font-mono text-xs">{{ file.updated_at }}</td>
+                                <td class="p-4 text-right text-slate-500 font-mono text-xs">{{ Math.round(file.size_kb) }}</td>
+                                <td class="p-4 text-center">
+                                    <button @click="copyPath(file.path)" class="text-slate-400 hover:text-blue-600 tooltip" title="複製路徑">
+                                        <i class="fa-regular fa-copy"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr v-if="filteredFiles.length === 0">
+                                <td colspan="6" class="p-12 text-center text-slate-400">
+                                    <i class="fa-regular fa-folder-open text-4xl mb-3"></i>
+                                    <p>沒有找到符合條件的檔案</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+        
+        <div v-if="showReportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-5/6 flex flex-col p-6 transform transition-all">
+                <div class="flex justify-between items-center mb-4 border-b pb-3">
+                    <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-robot text-rose-600"></i> 
+                        AI 深度解讀報告
+                        <span v-if="isGeneratingAI" class="text-sm font-normal text-slate-500 flex items-center gap-2 ml-4">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i> 思考中...
+                        </span>
+                    </h3>
+                    <button @click="showReportModal = false" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fa-solid fa-xmark text-2xl"></i>
+                    </button>
+                </div>
+                <textarea readonly 
+                        class="flex-1 w-full p-4 bg-slate-50 border border-slate-200 rounded-lg font-mono text-base leading-relaxed text-slate-700 focus:outline-none resize-none mb-4"
+                        v-model="reportText"></textarea>
+                <div class="flex justify-end gap-3">
+                    <button @click="showReportModal = false" 
+                            class="px-6 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition border">
+                        關閉
+                    </button>
+                    <button @click="navigator.clipboard.writeText(reportText); alert('已複製！')" 
+                            class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-2 shadow">
+                        <i class="fa-regular fa-copy"></i>
+                        複製報告
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const files = ref([]);
+                const loading = ref(false);
+                const searchKeyword = ref("");
+                const currentProject = ref("");
+                const currentCategory = ref("全部");
+                const totalFiles = ref(0);
+
+                // 設定 API 位址 (根據你 main.py 設定的 Port 修改)
+                const API_URL = "http://localhost:8001/api/scan";
+
+                const fetchFiles = async () => {
+                    loading.value = true;
+                    try {
+                        const res = await fetch(API_URL);
+                        const data = await res.json();
+                        files.value = data.files;
+                        totalFiles.value = data.total_files;
+                    } catch (error) {
+                        alert("無法連線到後端 API！請確認 main.py 是否正在執行。");
+                        console.error(error);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                // 自動提取所有不重複的專案名稱
+                const uniqueProjects = computed(() => {
+                    const projects = new Set(files.value.map(f => f.project));
+                    return Array.from(projects).sort();
+                });
+
+                // 固定分類選項
+                // ✨【修改點】定義你想要的「黃金順序」
+                // 請注意：這裡的文字必須跟 Python 回傳的 category "一模一樣" 才能對應到
+                const categoryOrder = [
+                    "電路相關圖檔 (Sch/PCB)",
+                    "機構相關圖檔 (Mechanical)",
+                    "流程圖 (Flow Chart)",
+                    "BOM",
+                    "測試報告 (Report)",
+                    "程式源碼 (Source)",
+                    "程式發佈檔 (Hex/Srec)",
+                    "法規文件 (Standard)",
+                    "其他資料 (Misc)"
+                ];
+
+                const categories = computed(() => {
+                    // 1. 先抓出所有檔案有的分類
+                    const allCats = files.value.map(f => f.category);
+                    // 2. 去除重複
+                    const uniqueCats = Array.from(new Set(allCats));
+
+                    // 3. ✨ 核心修改：依照上面的 categoryOrder 進行排序
+                    uniqueCats.sort((a, b) => {
+                        let indexA = categoryOrder.indexOf(a);
+                        let indexB = categoryOrder.indexOf(b);
+                        
+                        // 如果遇到沒在清單裡的分類（例如新加的），就把它丟到最後面
+                        if (indexA === -1) indexA = 999;
+                        if (indexB === -1) indexB = 999;
+                        
+                        return indexA - indexB; // 數字越小越前面
+                    });
+
+                    // 4. 最後補上 "全部"
+                    return ["全部", ...uniqueCats];
+                });
+
+                // 核心篩選邏輯
+                const filteredFiles = computed(() => {
+                    return files.value.filter(f => {
+                        // 1. 專案篩選
+                        if (currentProject.value && f.project !== currentProject.value) return false;
+                        // 2. 分類篩選
+                        if (currentCategory.value !== "全部" && f.category !== currentCategory.value) return false;
+                        // 3. 關鍵字搜尋
+                        if (searchKeyword.value) {
+                            const kw = searchKeyword.value.toLowerCase();
+                            return f.filename.toLowerCase().includes(kw);
+                        }
+                        return true;
+                    });
+                });
+
+                // 工具函式：根據副檔名給圖示
+                const getFileIcon = (name) => {
+                    const ext = name.split('.').pop().toLowerCase();
+                    if (['pdf'].includes(ext)) return 'fa-solid fa-file-pdf text-red-500';
+                    if (['doc', 'docx'].includes(ext)) return 'fa-solid fa-file-word text-blue-500';
+                    if (['xls', 'xlsx', 'csv'].includes(ext)) return 'fa-solid fa-file-excel text-green-500';
+                    if (['py', 'c', 'cpp', 'js', 'html'].includes(ext)) return 'fa-solid fa-file-code text-yellow-500';
+                    if (['jpg', 'png', 'jpeg'].includes(ext)) return 'fa-solid fa-image text-purple-500';
+                    return 'fa-solid fa-file text-gray-400';
+                };
+
+                // 工具函式：分類標籤顏色
+                // ✨【修改後】更新顏色判斷邏輯，加入你的新分類
+                const getBadgeColor = (cat) => {
+                    const name = cat.toLowerCase(); // 轉小寫方便比對
+                    
+                    if (name.includes("電路")) return "bg-orange-100 text-orange-700 border-orange-200";
+                    if (name.includes("機構")) return "bg-pink-100 text-pink-700 border-pink-200"; // ✨ 新增機構顏色
+                    if (name.includes("流程圖")) return "bg-cyan-100 text-cyan-700 border-cyan-200"; // ✨ 新增流程圖顏色
+                    if (name.includes("bom")) return "bg-purple-100 text-purple-700 border-purple-200"; // ✨ 新增 BOM 顏色
+                    
+                    if (name.includes("測試") || name.includes("report")) return "bg-green-100 text-green-700 border-green-200";
+                    if (name.includes("源碼")) return "bg-blue-100 text-blue-700 border-blue-200";
+                    if (name.includes("發佈檔")) return "bg-indigo-100 text-indigo-700 border-indigo-200"; // ✨ 增加這行
+                    if (name.includes("法規") || name.includes("standard")) return "bg-red-100 text-red-700 border-red-200";
+                    
+                    return "bg-gray-100 text-gray-600 border-gray-200"; // 其他
+                };
+
+                const copyPath = (path) => {
+                    navigator.clipboard.writeText(path).then(() => {
+                        // 可以在這裡加一個簡單的 Toast 提示
+                        alert("路徑已複製！"); 
+                    });
+                };
+
+                // ==============================================
+                // 🟢 請把您的新程式碼貼在這裡 (START)
+                // ==============================================
+
+                // 0. 定義必要的狀態變數 (如果之前沒加過 isGeneratingAI，這裡補上)
+                const selectedFiles = ref([]);       // 儲存被勾選的檔案
+                const isGeneratingAI = ref(false);   // 控制 AI 讀取中的轉圈圈
+                const showReportModal = ref(false);  // 控制彈出視窗顯示
+                const reportText = ref("");          // 儲存 AI 回傳的文字
+
+                // 1. 全選/取消全選
+                const toggleAll = (e) => {
+                    if (e.target.checked) {
+                        selectedFiles.value = files.value.map(f => f.path);
+                    } else {
+                        selectedFiles.value = [];
+                    }
+                };
+
+                // 2. 呼叫地端 AI (Ollama)
+                const analyzeSelected = async () => {
+                    // 檢查是否有勾選
+                    if (selectedFiles.value.length === 0) {
+                        alert("請先勾選想要分析的檔案！");
+                        return;
+                    }
+
+                    if (selectedFiles.value.length > 5) {
+                        if(!confirm("您選擇了超過 5 個檔案，地端 AI 讀取會花一點時間，確定要繼續嗎？")) return;
+                    }
+
+                    isGeneratingAI.value = true;
+                    // 這裡沿用之前週報功能的 reportText 和 showReportModal
+                    reportText.value = "🧠 正在讀取檔案內容並進行推理中 (由地端 Ollama 運算)...";
+                    showReportModal.value = true;
+
+                    try {
+                        // 注意：這裡假設您的後端是在 localhost:8001
+                        const response = await fetch('http://localhost:8001/api/analyze_local', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ files: selectedFiles.value }) 
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.status === 'success') {
+                            reportText.value = data.content;
+                        } else {
+                            reportText.value = "分析失敗：" + data.message;
+                        }
+                    } catch (error) {
+                        reportText.value = "連線錯誤，請確認 Python 後端與 Ollama 都有開啟。";
+                    } finally {
+                        isGeneratingAI.value = false;
+                    }
+                };
+
+                // ==============================================
+                // 🟢 貼上結束 (END)
+                // ==============================================
+
+                onMounted(() => {
+                    fetchFiles();
+                });
+
+                return {
+                    files, loading, searchKeyword, currentProject, currentCategory, totalFiles,
+                    uniqueProjects, categories, filteredFiles, fetchFiles,
+                    getFileIcon, getBadgeColor, copyPath,
+                    selectedFiles,
+                    toggleAll,
+                    analyzeSelected,
+                    isGeneratingAI,   // 如果上面有新增這個變數
+                    reportText,       // 這是之前週報功能用的
+                    showReportModal,  // 這是之前週報功能用的
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

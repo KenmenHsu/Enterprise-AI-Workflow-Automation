@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+pandas
+pypdf
+python-docx
+pywin32
+openpyxl
+python-dotenv
